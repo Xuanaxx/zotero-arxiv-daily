@@ -37,15 +37,26 @@ def get_zotero_corpus(id:str,key:str) -> list[dict]:
     return corpus
 
 def filter_corpus(corpus:list[dict], pattern:str) -> list[dict]:
+    # 创建临时文件写入pattern
     _,filename = mkstemp()
     with open(filename,'w') as file:
         file.write(pattern)
-    matcher = parse_gitignore(filename,base_dir='./')
+    matcher = parse_gitignore(filename, base_dir='./')
+    
     new_corpus = []
+    logger.info("----- Checking each Zotero item against the ignore pattern -----")
     for c in corpus:
+        # 输出当前条目的paths信息
+        logger.debug(f"Zotero Item Title: {c['data'].get('title','No Title')} | Paths: {c['paths']}")
         match_results = [matcher(p) for p in c['paths']]
+        # 将匹配结果打印出来
+        logger.debug(f"Match Results: {match_results}")
         if not any(match_results):
+            logger.debug("This item is NOT matched by the ignore pattern and will be kept.")
             new_corpus.append(c)
+        else:
+            logger.debug("This item is matched by the ignore pattern and will be ignored.")
+    
     os.remove(filename)
     return new_corpus
 
@@ -53,10 +64,10 @@ def select_corpus(corpus:list[dict], tags: str) -> list[dict]:
     tag = tags.split(',')
     new_corpus = []
     for c in corpus:
-      for p in c['paths']:
-        if p in tag:
-          new_corpus.append(c)
-          continue
+        for p in c['paths']:
+            if p in tag:
+                new_corpus.append(c)
+                continue
     return new_corpus
 
 def get_paper_code_url(paper:arxiv.Result) -> str:
@@ -70,7 +81,6 @@ def get_paper_code_url(paper:arxiv.Result) -> str:
             retry_num -= 1
             if retry_num == 0:
                 return None
-    
     if paper_list.get('count',0) == 0:
         return None
     paper_id = paper_list['results'][0]['id']
@@ -108,7 +118,7 @@ def get_arxiv_paper_from_web(query:str, start:datetime.datetime, end:datetime.da
     logger.info(f"Retrieving arXiv papers from {start} to {end} with {' '.join(real_query)}. Other query filters are ignored.")
     all_paper_ids = []
     for cat in cats:
-        url = f"https://arxiv.org/list/{cat}/new" #! This only retrieves the latest papers submitted in yesterday
+        url = f"https://arxiv.org/list/{cat}/new"
         response = requests.get(url)
         if response.status_code != 200:
             logger.warning(f"Cannot retrieve papers from {url}.")
@@ -271,23 +281,26 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     args = parser.parse_args()
     
-    assert args.zotero_id is not None
-    assert args.zotero_key is not None
-    assert args.arxiv_query is not None
-    assert (
-        not args.use_llm_api or args.openai_api_key is not None
-    )  # If use_llm_api is True, openai_api_key must be provided
     if args.debug:
         logger.debug("Debug mode is on.")
+
     today = datetime.datetime.now(tz=datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     yesterday = today - datetime.timedelta(days=1)
+
     logger.info("Retrieving Zotero corpus...")
     corpus = get_zotero_corpus(args.zotero_id, args.zotero_key)
     logger.info(f"Retrieved {len(corpus)} papers from Zotero.")
+
+    # 展示 Zotero corpus 的目录结构
+    logger.info("----- Zotero Corpus Directory Structure -----")
+    for c in corpus:
+        logger.debug(f"Title: {c['data'].get('title','No Title')} | Paths: {c['paths']}")
+
     if args.zotero_ignore:
-        logger.info(f"Ignoring papers in:\n {args.zotero_ignore}...")
+        logger.info(f"Ignoring patterns from zotero_ignore:\n{args.zotero_ignore}")
         corpus = filter_corpus(corpus, args.zotero_ignore)
         logger.info(f"Remaining {len(corpus)} papers after filtering.")
+
     logger.info("Retrieving Arxiv papers...")
     papers = get_arxiv_paper(args.arxiv_query, yesterday, today, args.debug)
     if len(papers) == 0:
@@ -325,4 +338,3 @@ if __name__ == '__main__':
     logger.info("Sending email...")
     send_email(args.sender, args.receiver, args.password, args.smtp_server, args.smtp_port, html)
     logger.success("Email sent successfully! If you don't receive the email, please check the configuration and the junk box.")
-
