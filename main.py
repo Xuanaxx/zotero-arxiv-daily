@@ -39,7 +39,7 @@ def filter_corpus(corpus:list[dict], pattern:str) -> list[dict]:
     matcher = parse_gitignore(filename,base_dir='./')
     new_corpus = []
     for c in corpus:
-        print(c['paths'])
+        # print(c['paths'])
         match_results = [matcher(p) for p in c['paths']]
         if not any(match_results):
             new_corpus.append(c)
